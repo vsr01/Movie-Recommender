@@ -4,11 +4,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 import gradio as gr
 import numpy as np
 import os # For checking file existence
+import ast
 
 # --- 1. Use the provided Movie Dataset ---
-DATA_FILE = 'imdb_top_1000.csv'
-EMBEDDINGS_FILE = 'imdb_top_1000_movie_embeddings.npy' # Define the file name for embeddings
-DF_PROCESSED_FILE = 'imdb_top_1000_processed_movies_df.csv' # Define file name for processed DataFrame
+DATA_FILE = 'raw_data/25k_movies.csv'
+EMBEDDINGS_FILE = 'embeddings/25k_movies_embeddings.npy' # Define the file name for embeddings
+DF_PROCESSED_FILE = 'processed_data/25k_movies_processed_df.csv' # Define file name for processed DataFrame
 
 # --- 2. Load and Prepare Data for Embeddings ---
 df = None # Initialize df outside try-except
@@ -21,24 +22,42 @@ try:
         df = pd.read_csv(DATA_FILE)
         print(f"Loaded {len(df)} movies from '{DATA_FILE}'.")
 
-        # Rename 'Series_Title' to 'title' for consistency
-        df.rename(columns={'Series_Title': 'title'}, inplace=True)
-
         # Fill any potential NaN values in text columns with empty strings
         df['Overview'] = df['Overview'].fillna('')
         df['Genre'] = df['Genre'].fillna('')
         df['Director'] = df['Director'].fillna('')
-        df['Star1'] = df['Star1'].fillna('')
-        df['Star2'] = df['Star2'].fillna('')
-        df['Star3'] = df['Star3'].fillna('')
-        df['Star4'] = df['Star4'].fillna('')
+        df['cast'] = df['cast'].fillna('')     
+        df['Keywords'] = df['Keywords'].fillna('')       
+
+        # --- NEW CODE FOR HANDLING GENRE LIST-LIKE STRINGS ---
+        # Convert string representation of lists to actual lists
+        # Use a lambda function with a try-except to handle potential errors
+        # (e.g., if some rows are empty or not correctly formatted as list strings)
+        def parse_list(col_str):
+            try:
+                # Safely evaluate the string as a Python literal
+                parsed_list = ast.literal_eval(col_str)
+                # Ensure it's a list, if not, treat as a single string
+                if isinstance(parsed_list, list):
+                    return ' '.join(parsed_list) # Join elements with a space
+                else:
+                    return str(parsed_list) # Treat as a single string if not a list
+            except (ValueError, SyntaxError):
+                return col_str.replace(',', ' ') # Fallback for non-list strings (e.g., "Drama, Action") or empty
+            except TypeError: # Handles cases where col_str might be non-string (e.g., NaN after fillna)
+                return ''
+                
+        df['Genre'] = df['Genre'].apply(parse_list)
+        df['Keywords'] = df['Keywords'].apply(parse_list)
+        df['cast'] = df['cast'].apply(parse_list)
+
 
         # Create a 'tags' column by combining relevant text features
         df['tags'] = df['Overview'] + ' ' + \
-                     df['Genre'].str.replace(',', ' ') + ' ' + \
+                     df['Genre'] + ' ' + \
                      df['Director'] + ' ' + \
-                     df['Star1'] + ' ' + df['Star2'] + ' ' + \
-                     df['Star3'] + ' ' + df['Star4']
+                     df['cast'] + ' ' + \
+                     df['Keywords']
 
         df['tags'] = df['tags'].apply(lambda x: x.lower().strip())
 
@@ -126,8 +145,8 @@ iface = gr.Interface(
     fn=recommend_movies,
     inputs=gr.Textbox(label="Enter a movie title (e.g., The Dark Knight, Inception)"),
     outputs=gr.Textbox(label="Recommendations"),
-    title="IMDB Top 1000 Movie Recommender (Text Embeddings)",
-    description="Enter a movie title from the IMDB Top 1000 to get recommendations based on content similarity (overview, genre, director, stars).",
+    title="Movie Recommender (Text Embeddings)",
+    description="Enter a movie title to get recommendations based on content similarity (overview, genre, director, stars).",
     examples=[
         "The Shawshank Redemption",
         "The Dark Knight",
